@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.utils.trigger_rule import TriggerRule
@@ -19,25 +19,27 @@ with DAG(
     tags=["infra", "tls", "certbot"],
 ) as dag:
 
+    COMPOSE_FILE = "/home/af_appuser/data-platform/docker-compose.yml"
+    COMPOSE_DIR = "/home/af_appuser/data-platform"
+
     certbot_renew = BashOperator(
         task_id="certbot_renew",
-        bash_command="""
+        bash_command=f"""
         set -euo pipefail
-
-        docker compose run --rm certbot renew \
-          --non-interactive \
-          --deploy-hook "echo renewed"
+        timeout 300 docker compose -f {COMPOSE_FILE} --project-directory {COMPOSE_DIR} \
+          run --rm --no-deps certbot renew --webroot -w /var/www/certbot --non-interactive
         """,
+        execution_timeout=timedelta(minutes=6),
     )
 
     nginx_reload = BashOperator(
         task_id="nginx_reload",
-        bash_command="""
+        bash_command=f"""
         set -euo pipefail
-
-        docker compose exec nginx nginx -s reload
+        docker compose -f {COMPOSE_FILE} --project-directory {COMPOSE_DIR} \
+          exec nginx nginx -s reload
         """,
-        trigger_rule=TriggerRule.ALL_DONE,
+        execution_timeout=timedelta(minutes=2),
     )
 
     certbot_renew >> nginx_reload

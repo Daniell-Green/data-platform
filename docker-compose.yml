@@ -51,7 +51,6 @@ services:
       - ./airflow/logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./airflow/webserver_config.py:/opt/airflow/webserver_config.py
     expose:
       - "8080"
     networks:
@@ -94,6 +93,7 @@ services:
       - ./airflow/plugins:/opt/airflow/plugins
       - /var/run/docker.sock:/var/run/docker.sock
       - ./nginx/www:/usr/share/nginx/html
+      - /home/af_appuser/data-platform:/home/af_appuser/data-platform
       - /home/af_appuser/data-platform/dbt/data_transformation:/home/af_appuser/data-platform/dbt/data_transformation
     networks:
       - data-platform
@@ -115,7 +115,7 @@ services:
     networks:
       - data-platform
     env_file:
-      - ./dbt/data-transformation/.env
+      - ./dbt/data_transformation/.env
 
   metabase:
     image: ${METABASE_IMAGE}
@@ -161,7 +161,8 @@ services:
       - ./certbot/www:/var/www/certbot
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/logs:/var/log/letsencrypt
-    entrypoint: ["sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h; done"]
+    entrypoint:
+      - "certbot"
     networks: [data-platform]
     read_only: false
 

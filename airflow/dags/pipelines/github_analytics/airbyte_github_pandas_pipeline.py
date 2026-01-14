@@ -77,7 +77,7 @@ def airbyte_sync_and_wait(connection_id: str, poke_interval: int = 15, timeout: 
 with DAG(
     dag_id="airbyte_then_dbt",
     start_date=datetime(2025, 1, 1),
-    schedule=None,
+    schedule='0 4 * * *',
     catchup=False,
     max_active_runs=1,
     default_args={"retries": 2},
