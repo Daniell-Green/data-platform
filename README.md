@@ -45,12 +45,12 @@ It provides end-to-end ingestion, transformation, orchestration, and analytics w
 
 Public subdomains exposed via **Nginx + Let’s Encrypt**:
 
-- `https://airflow.<domain>` – Airflow UI
-- `https://airbyte.<domain>` – Airbyte UI & API  
-  - health check: `https://airbyte.<domain>/api/v1/health`
-- `https://metabase.<domain>` – Metabase UI
-- `https://pgadmin.<domain>` – pgAdmin UI
-- `https://dbt-docs.<domain>` – dbt documentation site
+- `https://airflow.franklingreen.de` – Airflow UI
+- `https://airbyte.franklingreen.de` – Airbyte UI & API  
+  - health check: `https://airbyte.franklingreen.de/api/v1/health`
+- `https://metabase.franklingreen.de` – Metabase UI
+- `https://pgadmin.franklingreen.de` – pgAdmin UI
+- `https://dbt-docs.franklingreen.de` – dbt documentation site
 
 ---
 
@@ -138,7 +138,7 @@ Roles are explicitly managed with schema-level privileges
 
 ---
 
-## Project structure (recommended)
+## Project structure
 
 ```
 data-platform/
@@ -213,7 +213,7 @@ kubectl -n ingress-nginx get svc ingress-nginx-controller
 
 Verify Airbyte:
 ```bash
-curl -i https://airbyte.<domain>/api/v1/health
+curl -i https://airbyte.franklingreen.de/api/v1/health
 ```
 
 ---
