@@ -1,0 +1,7 @@
+version: 2
+
+models:
+  - name: mart_repo_daily_activity
+    description: "Daily GitHub activity metrics (issues, PRs, comments) per repository."
+  - name: mart_repo_current_stats
+    description: "Repository current stats enriched with last-30-day activity metrics."

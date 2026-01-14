@@ -1,0 +1,20 @@
+version: 2
+
+exposures:
+  - name: github_repo_activity_pandas
+    label: GitHub Repo Activity (Pandas)
+    type: dashboard
+    maturity: high
+
+    description: >
+      Metabase dashboard showing repository-level GitHub activity for pandas-dev/pandas,
+      including daily issues, pull requests, comments, and 30-day rolling activity metrics.
+
+    url: https://metabase.franklingreen.de/dashboard/2-github-repo-activity-pandas
+    owner:
+      name: Daniell Green
+      email: hdf.green@gmail.com
+
+    depends_on:
+      - ref('mart_repo_daily_activity')
+      - ref('mart_repo_current_stats')

@@ -1,0 +1,177 @@
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [data-platform]
+    ports:
+      - "${POSTGRES_HOST_IP}:${POSTGRES_HOST_PORT}:5432"
+
+  pgadmin:
+    image: ${PGADMIN_IMAGE}
+    container_name: pgadmin
+    restart: unless-stopped
+    depends_on: [ postgres ]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "${PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION}"
+      PGADMIN_CONFIG_SERVER_MODE: "${PGADMIN_CONFIG_SERVER_MODE}"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+    expose:
+      - "80"
+    networks:
+      - data-platform
+
+  redis:
+    image: ${REDIS_IMAGE}
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - data-platform
+
+  airflow-webserver:
+    build: ./airflow
+    container_name: airflow-webserver
+    restart: unless-stopped
+    depends_on: [postgres, redis]
+    env_file: ./airflow/.env
+    command: webserver
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./airflow/webserver_config.py:/opt/airflow/webserver_config.py
+    expose:
+      - "8080"
+    networks:
+      - data-platform
+    group_add:
+      - "${DOCKER_GID:?DOCKER_GID not set}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  airflow-scheduler:
+    build: ./airflow
+    container_name: airflow-scheduler
+    restart: unless-stopped
+    depends_on: [airflow-webserver]
+    env_file: ./airflow/.env
+    command: scheduler
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./nginx/www:/usr/share/nginx/html
+    networks:
+      - data-platform
+    group_add:
+      - "${DOCKER_GID:?DOCKER_GID not set}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  airflow-worker:
+    build: ./airflow
+    container_name: airflow-worker
+    restart: unless-stopped
+    depends_on: [postgres, redis]
+    env_file: ./airflow/.env
+    command: celery worker
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./nginx/www:/usr/share/nginx/html
+      - /home/af_appuser/data-platform/dbt/data_transformation:/home/af_appuser/data-platform/dbt/data_transformation
+    networks:
+      - data-platform
+    group_add:
+      - "${DOCKER_GID:?DOCKER_GID not set}"
+      - "${HOST_GID:?HOST_GID not set}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  dbt:
+    image: ${DBT_IMAGE}
+    container_name: dbt
+    restart: unless-stopped
+    working_dir: /usr/app
+    volumes:
+      - ${DBT_PROJECT_DIR}:/usr/app
+      - ${DBT_PROFILES_YML}:/root/.dbt/profiles.yml:ro
+    entrypoint: ["tail", "-f", "/dev/null"]
+    networks:
+      - data-platform
+    env_file:
+      - ./dbt/data-transformation/.env
+
+  metabase:
+    image: ${METABASE_IMAGE}
+    container_name: metabase
+    restart: unless-stopped
+    depends_on: [postgres]
+    environment:
+      MB_DB_TYPE: ${MB_DB_TYPE}
+      MB_DB_HOST: ${MB_DB_HOST}
+      MB_DB_PORT: ${MB_DB_PORT}
+      MB_DB_DBNAME: ${MB_DB_DBNAME}
+      MB_DB_USER: ${MB_DB_USER}
+      MB_DB_PASS: ${MB_DB_PASS}
+    expose:
+      - "3000"
+    networks:
+      - data-platform
+
+  nginx:
+    image: ${NGINX_IMAGE}
+    container_name: nginx
+    restart: unless-stopped
+    depends_on: [ airflow-webserver, metabase, pgadmin ]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/www:/usr/share/nginx/html:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    networks:
+      - data-platform
+      - kind
+    read_only: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  certbot:
+    image: ${CERTBOT_IMAGE}
+    container_name: certbot
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/logs:/var/log/letsencrypt
+    entrypoint: ["sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h; done"]
+    networks: [data-platform]
+    read_only: false
+
+networks:
+  data-platform:
+    external: true
+  kind:
+    external: true
+
+volumes:
+  pgdata:
+  pgadmin_data:
+

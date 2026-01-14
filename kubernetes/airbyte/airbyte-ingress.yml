@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: airbyte-franklingreen
+  namespace: airbyte-abctl
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: airbyte.franklingreen.de
+    http:
+      paths:
+      - path: /api/v1/connector_builder
+        pathType: Prefix
+        backend:
+          service:
+            name: airbyte-abctl-airbyte-connector-builder-server-svc
+            port:
+              number: 80
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: airbyte-abctl-airbyte-server-svc
+            port:
+              number: 8001

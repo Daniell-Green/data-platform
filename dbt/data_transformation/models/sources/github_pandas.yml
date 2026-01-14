@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: github_pandas
+    database: dwh
+    schema: raw
+    tables:
+      - name: gh_pandas_comments
+      - name: gh_pandas_issues
+      - name: gh_pandas_pull_requests
+      - name: gh_pandas_repositories
+      - name: gh_pandas_users
