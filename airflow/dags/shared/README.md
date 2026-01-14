@@ -36,3 +36,8 @@ If a file defines a DAG (`with DAG(...)`), it does **not** belong here.
 - Importable and reusable
 - No side effects at import time
 - No direct reads of Airflow Variables or Connections at module im
+
+## Responsibility
+
+Code in this directory is **foundational**.
+Changes here can affect many DAGs and should be made deliberately.
