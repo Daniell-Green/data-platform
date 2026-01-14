@@ -1,290 +1,296 @@
-Airbyte runs on kind (airbyte-abctl-control-plane)
-Public access path: nginx → kind NodePort 31374 → ingress-nginx → airbyte services
-If kind cluster is rebuilt, node container name/IP/nodeports may change (re-run kubectl -n ingress-nginx get svc and update nginx upstream if needed)
-
 # data-platform (self-hosted)
 
-A self-hosted analytics/data engineering platform running on an Ubuntu server using Docker Compose + an abctl-managed (kind) Kubernetes cluster for Airbyte. Includes Postgres, Airflow, dbt, Metabase, pgAdmin, Nginx reverse proxy with Let’s Encrypt, and supporting tooling.
+A self-hosted analytics and data engineering platform running on a single Ubuntu server.  
+The platform is orchestrated with **Docker Compose** and uses an **abctl-managed Kubernetes (kind) cluster** to run Airbyte.
+
+It provides end-to-end ingestion, transformation, orchestration, and analytics with a clear separation between configuration, secrets, and runtime state.
 
 ---
 
 ## High-level architecture
 
-**Ingestion**
-- Airbyte (installed via `abctl`, running in Kubernetes/kind)
+### Ingestion
+- **Airbyte**
+  - Installed via `abctl`
+  - Runs inside a Kubernetes cluster (kind)
 
-**Storage / Warehouse**
-- Postgres 16 (primary platform database)
+### Storage / Warehouse
+- **PostgreSQL 16**
+  - Primary analytical database
+  - Explicit schema and role separation
 
-**Transformation**
-- dbt (containerized; executed via Airflow)
+### Transformation
+- **dbt**
+  - Containerized
+  - Executed via Airflow
+  - Generates documentation served by Nginx
 
-**Orchestration**
-- Airflow (scheduler/webserver/workers; triggers Airbyte syncs and dbt steps)
+### Orchestration
+- **Airflow**
+  - Scheduler, webserver, workers
+  - Triggers Airbyte syncs and dbt runs
 
-**BI**
-- Metabase (reads from `mart` schema only)
+### BI / Analytics
+- **Metabase**
+  - Read-only access to curated marts
 
-**Reverse proxy / TLS**
-- Nginx (routes subdomains, terminates TLS with Let’s Encrypt)
+### Reverse proxy / TLS
+- **Nginx**
+  - Routes all public traffic
+  - Terminates TLS using Let’s Encrypt (Certbot)
 
 ---
 
 ## Services & URLs
 
-Public subdomains (behind Nginx + Let’s Encrypt):
+Public subdomains exposed via **Nginx + Let’s Encrypt**:
+
 - `https://airflow.<domain>` – Airflow UI
-- `https://airbyte.<domain>` – Airbyte UI + API
-  - health: `https://airbyte.<domain>/api/v1/health`
+- `https://airbyte.<domain>` – Airbyte UI & API  
+  - health check: `https://airbyte.<domain>/api/v1/health`
 - `https://metabase.<domain>` – Metabase UI
 - `https://pgadmin.<domain>` – pgAdmin UI
-- `https://dbt-docs.<domain>` – dbt docs site
+- `https://dbt-docs.<domain>` – dbt documentation site
 
 ---
 
-## Key implementation details
+## Airbyte deployment details (abctl / Kubernetes / kind)
 
-### Airbyte (abctl / Kubernetes / kind)
-- Airbyte is deployed via `abctl` into the namespace: `airbyte-abctl`
-- Kubernetes context (kubeconfig):
+### Cluster
+- Airbyte namespace: `airbyte-abctl`
+- Kubernetes cluster: **kind**
+- Kind node container:
+  - `airbyte-abctl-control-plane`
+
+### kubeconfig
+- Primary:
   - `/root/.airbyte/abctl/abctl.kubeconfig`
-  - copied to `/root/.kube/config` for normal `kubectl` usage
-- Cluster node container:
-  - `airbyte-abctl-control-plane` (kind node)
-- ingress-nginx is installed in-cluster and used for routing.
+- Copied to:
+  - `/root/.kube/config` for standard `kubectl` usage
 
-#### Airbyte exposure (stable, no port-forward)
-We expose Airbyte via:
-- `Ingress` resources inside k8s (`IngressClass: nginx`)
-- Docker nginx reverse proxy (TLS) → kind node NodePort → ingress-nginx → airbyte services
+### Ingress
+- Ingress controller: **ingress-nginx** (in-cluster)
+- Ingress class: `nginx`
 
-**NodePorts (ingress-nginx service)**
-- HTTP NodePort: `31374` (service port 8000 → NodePort 31374)
-- HTTPS NodePort: `31491` (service port 443 → NodePort 31491)
+### Public exposure (stable, no port-forwarding)
 
-**Airbyte host ingress (host-specific)**
-- Ingress name: `airbyte-franklingreen` (namespace `airbyte-abctl`)
-- Must include routing for:
-  - `/` → `airbyte-abctl-airbyte-server-svc:8001` (serves Airbyte UI and API)
-  - `/api/v1/connector_builder` → `airbyte-abctl-airbyte-connector-builder-server-svc:80`
+Traffic flow:
 
-**Important**
-- Host-specific ingress takes precedence over wildcard ingress (`ingress-abctl`). If you define a host-specific ingress, include the `/` route, otherwise you may get `403`.
+```
+Internet
+  → Nginx (Docker, TLS termination)
+  → kind NodePort
+  → ingress-nginx
+  → Airbyte services
+```
 
-### Nginx ↔ kind Docker network dependency
-- The `nginx` container must be attached to the Docker network `kind` so it can reach:
+**NodePorts (ingress-nginx service)**:
+- HTTP: `31374`
+- HTTPS: `31491`
+
+### Host-specific Airbyte ingress
+
+- Ingress name: `airbyte-franklingreen`
+- Namespace: `airbyte-abctl`
+- Required routes:
+  - `/` → `airbyte-abctl-airbyte-server-svc:8001`
+  - `/api/v1/connector_builder`
+    → `airbyte-abctl-airbyte-connector-builder-server-svc:80`
+
+**Important**  
+If a host-specific ingress is defined, it **must** include a `/` route.  
+Otherwise, requests may fall through to the wildcard ingress and return `403`.
+
+---
+
+## Nginx ↔ kind networking dependency
+
+- The `nginx` container must be attached to the Docker network **`kind`**
+- This allows Nginx to reach:
   - `airbyte-abctl-control-plane:31374`
 
-This is declared in docker-compose (external network):
-- `kind` external network is added to the nginx service in compose.
-
-### Airflow ↔ Airbyte connectivity
-- Airflow should use Airbyte base URL:
-  - `https://airbyte.<domain>`
-- Avoid any host port-forward approaches (deprecated in this setup).
+This is declared explicitly in `docker-compose.yml` as an external network.
 
 ---
 
-## Data contract (Postgres roles & schemas)
+## Airflow ↔ Airbyte connectivity
 
-Target contract:
-- Airbyte writes only to `raw`
-- dbt reads from `raw`, writes to `staging` and `mart`
-- Metabase reads only from `mart`
+- Airflow uses the public Airbyte base URL:
+  - `https://airbyte.<domain>`
+- No host port-forwarding is used (deprecated in this setup)
 
-Schemas:
+---
+
+## Data contract (Postgres schemas & roles)
+
+### Schemas
 - `raw`
 - `staging`
 - `mart`
 
-Roles are explicitly managed with schema-level privileges (USAGE/SELECT/CREATE as appropriate).
+### Responsibilities
+- **Airbyte** → writes to `raw`
+- **dbt** → reads `raw`, writes `staging` and `mart`
+- **Metabase** → reads from `mart` only
+
+Roles are explicitly managed with schema-level privileges
+(`USAGE`, `SELECT`, `CREATE` as appropriate).
 
 ---
 
 ## Project structure (recommended)
 
-    data-platform/
-        docker-compose.yml
-        .env
-        readme.md
-        airflow/
-            .env
-            dags/
-            plugins/
-            docs/
-            logs/
-        certbot
-            conf/
-            logs/
-            www/
-        dbt/
-            <PROJECT>/
-                analysis/
-                macros/ 
-                models/
-                seeds/
-                snapshots/
-                target/
-                tests/
-                profiles.yml
-                dbt_project.yml
-            logs/
-            profiles/
-        kubernetes/
-            airbyte/
-                airbyte-ingress.yml
-        nginx/
-            conf.d/
-            www/
-                dbt-docs/
-        pgadmin/
-            servers.json
-        postgres/
-            - init/
+```
+data-platform/
+├─ docker-compose.yml
+├─ .env
+├─ README.md
+├─ airflow/
+│  ├─ .env
+│  ├─ dags/
+│  ├─ plugins/
+│  ├─ docs/
+│  └─ logs/
+├─ certbot/
+│  ├─ conf/
+│  ├─ logs/
+│  └─ www/
+├─ dbt/
+│  └─ <PROJECT>/
+│     ├─ analysis/
+│     ├─ macros/
+│     ├─ models/
+│     ├─ seeds/
+│     ├─ snapshots/
+│     ├─ tests/
+│     ├─ target/
+│     ├─ profiles.yml
+│     └─ dbt_project.yml
+├─ kubernetes/
+│  └─ airbyte/
+│     └─ airbyte-ingress.yml
+├─ nginx/
+│  ├─ conf.d/
+│  └─ www/
+│     └─ dbt-docs/
+├─ pgadmin/
+│  └─ servers.json
+└─ postgres/
+   └─ init/
+```
 
 ---
 
 ## Common operations
 
 ### Docker Compose (platform services)
+
 Start:
 ```bash
 docker compose up -d
 ```
-Check:
-```
+
+Inspect:
+```bash
 docker compose ps
 docker compose logs -f --tail=200 <service>
 ```
+
 ### Kubernetes (Airbyte)
-Set kubeconfig (if needed):
-```
+
+Set kubeconfig:
+```bash
 export KUBECONFIG=/root/.airbyte/abctl/abctl.kubeconfig
 ```
-Inspect:
-```
+
+Inspect cluster:
+```bash
 kubectl -n airbyte-abctl get pods
 kubectl -n airbyte-abctl get svc
 kubectl -n airbyte-abctl get ingress
 kubectl -n ingress-nginx get svc ingress-nginx-controller
 ```
-### Verify Airbyte endpoint
-```
+
+Verify Airbyte:
+```bash
 curl -i https://airbyte.<domain>/api/v1/health
 ```
 
 ---
 
-### Airflow DAGs (current state)
+## Airflow DAGs (current state)
+
 Pipeline pattern:
+1. Airbyte sync ✅
+2. dbt run ✅
+3. dbt test ⏳
+4. dbt docs publish ✅
 
-1. Airbyte sync (DONE)
-2. dbt run (DONE)
-3. dbt test (TODO)
-4. dbt docs publish (DONE)
-
-Notes: 
-
-- ``dbt test`` should fail the DAG on test failures.
-- Prefer tagging / selecting tests for performance and clarity.
+Notes:
+- `dbt test` should fail the DAG on test failures
+- Prefer model/test selection via tags
 
 ---
 
 ## dbt docs publishing
 
-A DAG exists to publish dbt docs.
-Stabilization target:
+A DAG exists to publish dbt docs to Nginx.
 
-- atomic deploy (release directory + current symlink)
-- Nginx serves current/ to avoid partial publishes
+Stabilization target:
+- atomic deploy (staging directory → final)
+- Nginx serves a fully consistent docs site at all times
 
 ---
 
 ## Portfolio demo status
 
-Current dataset:
+### Current dataset
+- Airbyte ingesting GitHub data from: `pandas-dev/pandas`
 
-- Airbyte pulling GitHub repo: ``pandas-dev/pandas``
+### Metabase
+- One dashboard with two cards:
+  - time series: commits / PRs / comments
+  - table: top repositories by PR count
 
-Metabase:
-
-- 1 dashboard with 2 cards:
-  - line chart: commits / PRs / comments
-  - table: top 10 repositories by PRs
-
-Next improvements:
-
-- add marts (lead time, backlog, contributor activity)
-- add dbt tests + docs coverage
-- expand dashboard to 4–6 cards with at least one “insight metric” (e.g., PR lead time)
+### Planned improvements
+- additional marts (lead time, backlog, contributor activity)
+- dbt tests & documentation coverage
+- expanded dashboards with insight metrics (e.g. PR lead time)
 
 ---
 
 ## Troubleshooting
-kubectl connects to localhost:8080 / no context
 
-Fix by pointing kubectl to abctl kubeconfig:
+### kubectl connects to localhost:8080
 
-```
+Fix:
+```bash
 export KUBECONFIG=/root/.airbyte/abctl/abctl.kubeconfig
 cp /root/.airbyte/abctl/abctl.kubeconfig /root/.kube/config
 chmod 600 /root/.kube/config
 ```
 
-### Airbyte UI/API returns 403 after ingress changes
+### Airbyte returns 403 after ingress changes
 
-Cause: host-specific ingress without a ``/`` route.
+Cause:
+- Host-specific ingress without `/` route
 
-Fix: ensure host-specific ingress includes ``/`` backend routing to ``airbyte-abctl-airbyte-server-svc``.
+Fix:
+- Ensure `/` routes to `airbyte-abctl-airbyte-server-svc`
 
+### Nginx cannot reach Airbyte
 
-### nginx cannot reach Airbyte (timeouts)
+Cause:
+- Nginx not attached to Docker network `kind`
 
-Cause: nginx not connected to Docker network ``kind``.
-
-Fix: declare ``kind`` external network in compose for nginx.
+Fix:
+- Add `kind` as an external network to the nginx service
 
 ---
 
 ## Security notes
 
-- Keep secrets out of git:
-  - use ``.env`` and ``env_file`` where possible
-- Restrict public exposure to only required services.
-- Metabase uses read-only DB role.
-- Postgres roles enforce schema boundaries.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+- Secrets are never committed
+- `.env` files are ignored
+- Metabase uses read-only database access
+- Postgres roles enforce schema boundaries
