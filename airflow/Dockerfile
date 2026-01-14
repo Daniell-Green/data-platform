@@ -2,8 +2,9 @@ FROM apache/airflow:2.9.3
 
 USER root
 
-# Install modern Docker CLI from Docker's official repo (not Debian's docker.io)
-ARG DOCKER_CLI_VERSION=5:26.1.4-1~debian.12~bookworm
+ARG DOCKER_CLI_VERSION=5:29.1.4-1~debian.12~bookworm
+ARG DOCKER_COMPOSE_PLUGIN_VERSION=2.27.1-1~debian.12~bookworm
+
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl gnupg lsb-release; \
@@ -13,7 +14,9 @@ RUN set -eux; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" \
       > /etc/apt/sources.list.d/docker.list; \
     apt-get update; \
-    apt-get install -y --no-install-recommends docker-ce-cli="${DOCKER_CLI_VERSION}"; \
+    apt-get install -y --no-install-recommends \
+      docker-ce-cli="${DOCKER_CLI_VERSION}" \
+      docker-compose-plugin="${DOCKER_COMPOSE_PLUGIN_VERSION}"; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
