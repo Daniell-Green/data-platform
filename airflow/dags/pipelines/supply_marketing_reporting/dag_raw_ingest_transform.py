@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import pandas as pd
 from sqlalchemy import create_engine
@@ -32,12 +33,17 @@ def _snake_case(name: str) -> str:
 
 
 def _engine():
+    # Ingestion connects as the airflow role, not the dbt role: dbt holds only
+    # USAGE + SELECT on raw so the transformation layer cannot rewrite its own
+    # sources. See setup/grants.sql.
     host = Variable.get("DBT_DEV_HOST")
     port = Variable.get("DBT_DEV_PORT")
-    user = Variable.get("DBT_DEV_USER")
-    password = Variable.get("DBT_DEV_PASSWORD")
+    user = Variable.get("RAW_DB_USER")
+    password = Variable.get("RAW_DB_PASSWORD")
     dbname = "dwh"
-    return create_engine(f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}")
+    return create_engine(
+        f"postgresql+psycopg2://{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/{dbname}"
+    )
 
 
 def load_raw_files() -> None:
