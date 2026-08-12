@@ -38,7 +38,11 @@ BASE_URL = os.environ.get("METABASE_URL", "https://metabase.franklingreen.de")
 DASHBOARD_ID = 3
 
 TAG_NAME = "dq_valid"
-PARAM_NAME = "Data quality"
+# The filter chip is labelled with the column name, not a prose synonym. One concept
+# should have one name across the model, the SQL and the BI layer: a reader who sees
+# "dq_valid: True" on the dashboard can grep the warehouse for it and find the column.
+# A friendlier label like "Data quality" reads better but breaks that chain.
+PARAM_NAME = "dq_valid"
 PARAM_SLUG = "dq_valid"
 PARAM_TYPE = "boolean/="
 PARAM_ID = "dqvalid01"
@@ -99,6 +103,36 @@ CARD_SQL = {
         "where {{dq_valid}} group by 1 order by 2 desc"
     ),
 }
+
+
+# Cards that read mart_sm_data_quality. They are never wired to the filter - the data
+# quality view must always show flagged rows - but their SQL is managed here so the
+# whole dashboard stays reproducible from the repo.
+#
+# These carried cosmetic aliases that renamed model columns in the BI layer:
+# dq_valid -> in_kpis, dq_issues_label -> issues, revenue_excluded_from_kpis ->
+# excluded_revenue. Three names for one concept is exactly the drift that makes a
+# reader distrust a number they cannot trace back to a column. The aliases are gone.
+UNWIRED_CARD_SQL = {
+    44: (
+        "select coalesce(sum(revenue_excluded_from_kpis), 0) as revenue_excluded_from_kpis "
+        "from mart.mart_sm_data_quality"
+    ),
+    51: (
+        "select transaction_id, transaction_date, customer_id, product_id, quantity, "
+        "gross_revenue, dq_issues_label, dq_valid, revenue_excluded_from_kpis "
+        "from mart.mart_sm_data_quality order by transaction_id"
+    ),
+}
+
+# Explanatory text on the Data Quality section, kept here for the same reason: it names
+# the column directly rather than an alias that exists only on one card.
+SECTION_TEXT_MARKER = "in_kpis"
+SECTION_TEXT = (
+    "Rows the pipeline flagged. Records with `dq_valid = false` are excluded from every "
+    "figure above; `possible_duplicate_transaction` rows have `dq_valid = true` and are "
+    "included, but surfaced here for review."
+)
 
 
 def api(path: str, method: str = "GET", body: dict | None = None) -> dict | list:
@@ -188,7 +222,8 @@ def main() -> None:
     print(f"mart.fct_sm_sales.dq_valid -> field id {field_id}")
 
     dashboard = api(f"/dashboard/{DASHBOARD_ID}")
-    cards = {cid: api(f"/card/{cid}") for cid in CARD_SQL}
+    # Back up every card this script can modify, wired or not, so --revert is complete.
+    cards = {cid: api(f"/card/{cid}") for cid in list(CARD_SQL) + list(UNWIRED_CARD_SQL)}
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_path = f"backup_dashboard{DASHBOARD_ID}_{stamp}.json"
@@ -202,12 +237,23 @@ def main() -> None:
             print(f"\n--- card {cid}: {cards[cid]['name']}")
             print(f"  before: {old}")
             print(f"  after : {sql}")
+        for cid, sql in UNWIRED_CARD_SQL.items():
+            card = api(f"/card/{cid}")
+            print(f"\n--- unwired card {cid}: {card['name']}")
+            print(f"  before: {card['dataset_query']['stages'][0].get('native')}")
+            print(f"  after : {sql}")
+        for dc in dashboard["dashcards"]:
+            text = (dc.get("visualization_settings") or {}).get("text")
+            if text and SECTION_TEXT_MARKER in text:
+                print(f"\n--- section text on dashcard {dc['id']}")
+                print(f"  before: {text}")
+                print(f"  after : {SECTION_TEXT}")
         unwired = [
             c["card"]["id"]
             for c in dashboard["dashcards"]
             if (c.get("card") or {}).get("id") and c["card"]["id"] not in CARD_SQL
         ]
-        print(f"\nleft unwired (data quality cards): {sorted(unwired)}")
+        print(f"\nleft unwired (data quality + freshness cards): {sorted(unwired)}")
         print(f"dashboard parameter to add: {PARAM_NAME} ({PARAM_TYPE}), default true")
         print("\nDry run only. Nothing was changed.")
         return
@@ -219,6 +265,16 @@ def main() -> None:
         query["stages"][0]["template-tags"] = tags
         api(f"/card/{cid}", "PUT", {"dataset_query": query})
         print(f"updated card {cid}: {cards[cid]['name']}")
+
+    # Unwired data quality cards: SQL only, and deliberately no template tags. Adding a
+    # tag here would introduce a parameter the card cannot satisfy on its own.
+    for cid, sql in UNWIRED_CARD_SQL.items():
+        card = api(f"/card/{cid}")
+        query = json.loads(json.dumps(card["dataset_query"]))
+        query["stages"][0]["native"] = sql
+        query["stages"][0].pop("template-tags", None)
+        api(f"/card/{cid}", "PUT", {"dataset_query": query})
+        print(f"updated unwired card {cid}: {card['name']}")
 
     parameters = [p for p in dashboard.get("parameters", []) if p.get("slug") != PARAM_SLUG]
     parameters.append(
@@ -234,6 +290,11 @@ def main() -> None:
 
     dashcards = json.loads(json.dumps(dashboard["dashcards"]))
     for dc in dashcards:
+        text = (dc.get("visualization_settings") or {}).get("text")
+        if text and SECTION_TEXT_MARKER in text:
+            dc["visualization_settings"]["text"] = SECTION_TEXT
+            print(f"updated section text on dashcard {dc['id']}")
+
         cid = (dc.get("card") or {}).get("id")
         if cid not in CARD_SQL:
             continue
