@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 
 from airflow import DAG
 from airflow.models import Variable
@@ -68,11 +68,22 @@ def load_raw_files() -> None:
         df["_source_file"] = filename
         df["_loaded_at"] = loaded_at
 
+        # Truncate-and-append rather than pandas' "replace", which drops the
+        # table: the dbt staging views depend on these tables, so a drop fails
+        # once the models have been built. Truncating keeps the table and its
+        # dependents in place while still giving full-refresh semantics.
+        if inspect(engine).has_table(table_name, schema=RAW_SCHEMA):
+            with engine.begin() as conn:
+                conn.exec_driver_sql(f'truncate table {RAW_SCHEMA}."{table_name}"')
+            if_exists = "append"
+        else:
+            if_exists = "replace"
+
         df.to_sql(
             table_name,
             engine,
             schema=RAW_SCHEMA,
-            if_exists="replace",
+            if_exists=if_exists,
             index=False,
         )
 
