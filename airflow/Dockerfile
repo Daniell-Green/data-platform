@@ -21,3 +21,6 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 USER airflow
+
+# Needed by pipelines/supply_marketing_reporting to load source files into the raw schema.
+RUN pip install --no-cache-dir pandas==2.2.3 openpyxl==3.1.5 SQLAlchemy==2.0.36 psycopg2-binary==2.9.10
