@@ -1,19 +1,26 @@
 # Server context — data-platform production host
 
-Last verified: 2026-08-12, by direct SSH inspection of the live server. Cross-checked against `README.md` in this repo — matched exactly except where noted below.
+Architecture and operational notes for the production deployment, verified by
+direct inspection of the live server on 2026-08-12 and cross-checked against
+`README.md`.
 
-## Access
-- Host: `87.106.5.6` (hostname `ubuntu`)
-- SSH: `root@87.106.5.6`, key-based (private key `id_rsa`)
-- OS: Ubuntu 24.04.3 LTS, kernel 6.8.0-90-generic
-- Hardware: 8 vCPU, 31GB RAM, 464GB disk (~12% used, 413GB free)
-- Uptime at last check: 215+ days
+> **Scope note.** This repository is public, so this document deliberately
+> records *architecture* and not *access*. Host addresses, account names, SSH
+> details, OS build and patch levels, and pinned image digests are intentionally
+> omitted — they are operational secrets that belong in a private runbook or a
+> secrets manager, not in version control. Anyone who needs them has the private
+> runbook.
 
 ## Deployment model
-- **Docker Compose** stack lives on the server at `/home/af_appuser/data-platform/` (a checkout of this repo, owned by user `af_appuser`).
-- **Kubernetes (kind)** cluster, managed via `abctl`, runs **only Airbyte**. Single node `airbyte-abctl-control-plane`.
-  - kubectl client v1.36.3 / server v1.32.2 — version skew warning is cosmetic, not a real issue currently.
-- **Nginx** (runs as a Docker container — there is no host-level `/etc/nginx`) terminates TLS for all public domains and proxies into the kind cluster over the external Docker network **`kind`**, reaching `airbyte-abctl-control-plane:31374` (the in-cluster ingress-nginx NodePort).
+- **Docker Compose** stack lives on the server in a checkout of this repo, owned
+  by a dedicated non-root application user. Administrative work is done
+  separately from the account the platform runs as.
+- **Kubernetes (kind)** cluster, managed via `abctl`, runs **only Airbyte**, on a
+  single node (`airbyte-abctl-control-plane`).
+- **Nginx** runs as a Docker container — there is no host-level `/etc/nginx`. It
+  terminates TLS for all public domains and proxies into the kind cluster over
+  the external Docker network **`kind`**, reaching the in-cluster ingress-nginx
+  NodePort.
 
 ## Public domains (franklingreen.de, Let's Encrypt via Certbot)
 All verified returning healthy responses on 2026-08-12:
@@ -26,46 +33,54 @@ All verified returning healthy responses on 2026-08-12:
 | `dbt-docs.franklingreen.de` | dbt docs site | 200 |
 | `airbyte.franklingreen.de` | Airbyte UI & API | 200 |
 
-Important ingress caveat (confirmed in README and in live config): the host-specific Airbyte ingress (`airbyte-franklingreen`, namespace `airbyte-abctl`) **must** include a `/` route to `airbyte-abctl-airbyte-server-svc:8001`, otherwise requests fall through to the wildcard ingress and return `403`.
+Important ingress caveat (confirmed in README and in live config): the
+host-specific Airbyte ingress (`airbyte-franklingreen`, namespace
+`airbyte-abctl`) **must** include a `/` route to the Airbyte server service,
+otherwise requests fall through to the wildcard ingress and return `403`.
 
-## Docker Compose services (as of 2026-08-12, all "Up 6-7 months", no unexpected restarts)
-- `nginx` (nginx:1.27-alpine) — reverse proxy, ports 80/443
-- `airflow-webserver`, `airflow-scheduler`, `airflow-worker` (custom `data-platform-airflow-*` images)
-- `postgres` (postgres:16) — primary warehouse; bound to `172.17.0.1:5432` (docker0 bridge only, not publicly exposed)
-- `redis` (redis:7) — Airflow broker
-- `pgadmin` (dpage/pgadmin4:8)
-- `metabase` (metabase/metabase:v0.58.1)
-- `dbt` (ghcr.io/dbt-labs/dbt-postgres:1.9.latest) — run via Airflow, container healthy
-- Several `data-platform-certbot-run-*` one-shot containers (certbot/certbot:latest) — cert renewal runs; multiple still listed "Up" from 6-7 months ago even though they're one-shot jobs. Harmless but should be pruned eventually (`docker container prune`).
+## Docker Compose services
+All running steadily with no unexpected restarts as of 2026-08-12:
 
-Docker version: 29.1.3 / Docker Compose v5.0.1.
+- `nginx` — reverse proxy, terminates TLS on 80/443
+- `airflow-webserver`, `airflow-scheduler`, `airflow-worker` — custom images
+  built from `airflow/Dockerfile` in this repo
+- `postgres` — primary warehouse; bound to the Docker bridge only and **not**
+  publicly exposed
+- `redis` — Airflow broker
+- `pgadmin`
+- `metabase`
+- `dbt` — invoked by Airflow, container healthy
+- Several one-shot `certbot` containers from past renewal runs
 
 ## Kubernetes (kind) — namespace `airbyte-abctl`
-All pods healthy, 214 days old, no unexpected restarts:
-- `airbyte-abctl-server`, `airbyte-abctl-worker`, `airbyte-abctl-temporal`, `airbyte-abctl-cron`, `airbyte-abctl-connector-builder-server`, `airbyte-abctl-workload-api-server`
-- `airbyte-abctl-workload-launcher` — 1 restart, 214 days ago (old, not a current concern)
-- `airbyte-db-0` — Airbyte's own Postgres
-- `airbyte-abctl-bootloader` — Completed (expected, one-shot init job)
+All pods healthy with no unexpected restarts: `airbyte-abctl-server`,
+`-worker`, `-temporal`, `-cron`, `-connector-builder-server`,
+`-workload-api-server`, `-workload-launcher`, plus `airbyte-db-0` (Airbyte's own
+Postgres) and the completed `-bootloader` init job.
 
-Ingress objects: `airbyte-franklingreen` (class `nginx`, host `airbyte.franklingreen.de`) and `ingress-abctl` (wildcard default).
-
-Other namespaces are all standard/expected: `ingress-nginx`, `default`, `kube-system`, `kube-node-lease`, `kube-public`, `local-path-storage`. Nothing unexpected.
+Ingress objects: `airbyte-franklingreen` (class `nginx`) and `ingress-abctl`
+(wildcard default). All other namespaces are standard.
 
 ## Data contract (Postgres)
 Matches README exactly:
-- `raw` schema — Airbyte writes here
+- `raw` schema — Airbyte and Airflow ingestion write here
 - `staging` / `mart` schemas — dbt reads `raw`, writes both
-- Metabase reads from `mart` only
-
-## Host users
-- `af_appuser` — owns the deployed repo checkout at `/home/af_appuser/data-platform/`; this is the account the platform runs as.
-- `awny_vds` — a separate, unrelated user with its own SSH key and VS Code Remote session. No docker-compose or app files under its home — not part of the platform deployment.
-- `root` — used for direct admin/ops work. Has `.kube/config`, `.airbyte/`, and various dev tool configs (`.claude`, `.copilot`, `.vscode-server`).
+- Metabase reads from `mart` only, through a read-only role scoped to that schema
 
 ## Scheduling
-- No crontab on `root`. Only standard Ubuntu systemd timers are active (apt-daily, logrotate, fstrim, sysstat, man-db, etc.) — nothing platform-specific.
-- Certificate renewal is **not** cron-driven — it's triggered by an **Airflow DAG**, which runs the one-shot certbot containers (matches the repeated `data-platform-certbot-run-*` containers seen). Confirmed 2026-08-12.
+- No platform-specific crontab. Only standard Ubuntu systemd timers are active
+  (apt-daily, logrotate, fstrim, sysstat, man-db).
+- Certificate renewal is **not** cron-driven — it is triggered by an **Airflow
+  DAG**, which runs the one-shot certbot containers. Confirmed 2026-08-12.
 
 ## Open items / things to watch
-- kubectl client/server skew (1.36 vs 1.32) — bump client or pin an older kubectl if it starts causing real problems.
-- Stale exited-but-"Up" certbot one-shot containers accumulating — safe to `docker container prune`.
+- kubectl client/server version skew — bump the client or pin an older one if it
+  starts causing real problems.
+- Stale exited-but-"Up" certbot one-shot containers accumulating — safe to
+  `docker container prune`.
+- Airflow Variables currently hold database credentials. Moving them to a
+  secrets backend is tracked in
+  `airflow/dags/pipelines/supply_marketing_reporting/docs/governance.md`.
+- Metabase has no `MB_ENCRYPTION_SECRET_KEY` set, so it stores its database
+  connection credentials unencrypted in its application database. Setting one
+  and restarting Metabase would encrypt them at rest.
