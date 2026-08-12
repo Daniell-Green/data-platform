@@ -9,8 +9,10 @@ exposures:
     description: >
       Metabase dashboard for the Supply & Marketing department: executive KPIs,
       revenue by country and over time, product performance, customer overview,
-      and a data quality view showing which source rows are excluded from the
-      reported figures and why.
+      and a data quality view showing which source rows are filtered out of the
+      reported figures and why. fct_sm_sales carries every source transaction;
+      a dashboard-level filter on dq_valid, defaulting to true, decides which
+      rows the headline KPI cards count.
 
     url: https://metabase.franklingreen.de/dashboard/3
     owner:

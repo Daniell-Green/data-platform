@@ -13,12 +13,17 @@ erDiagram
         date    transaction_date FK
         text    customer_id FK
         text    product_id FK
+        text    source_customer_id
+        text    source_product_id
         text    transaction_country
         text    currency
         numeric volume
         numeric unit_price
         numeric revenue
         numeric margin
+        bool    dq_valid
+        text    dq_issues
+        text    dq_issues_label
         bool    is_possible_duplicate_transaction
     }
 
@@ -57,18 +62,26 @@ erDiagram
     }
 ```
 
-`mart_sm_data_quality` sits outside the star on purpose: it reports on rows the
-fact table deliberately excludes, so it reads from staging rather than from
-`fct_sm_sales`.
+`mart_sm_data_quality` sits outside the star on purpose. It reads from staging
+rather than from `fct_sm_sales` and carries the revenue-share measures
+(`pct_of_total_abs_revenue`, `total_abs_revenue`) that the fact has no reason to
+hold, so it remains the dedicated row-level quality view.
 
 ## Fact table
 
 **`fct_sm_sales`** — grain: one row per source transaction (`transaction_id`).
 
-Only rows that passed the staging data quality rules are included. This is the
-single conformed fact behind every headline KPI, so revenue by country, volume by
-product, margin by product group and top customers are guaranteed to reconcile
-with each other.
+**Every source transaction is present, including rows that failed a data quality
+rule.** `dq_valid` marks the rows fit for headline reporting. The fact therefore
+describes its own completeness: a consumer can see both what was measured and
+what was set aside, without needing a second table to discover that anything was
+withheld.
+
+This is the single conformed fact behind every headline KPI, so revenue by
+country, volume by product, margin by product group and top customers are
+guaranteed to reconcile with each other — provided they apply the same
+`dq_valid` filter, which the dashboard enforces centrally with one filter widget
+rather than per card.
 
 ## Dimensions
 
@@ -79,6 +92,9 @@ with each other.
 | `dim_sm_date` | one row per calendar day | Generated across the observed transaction range, padded out to whole calendar months (Jan 2026 → 31 rows), so trend charts show gaps as gaps rather than skipping absent days. |
 
 ## Key business measures
+
+All four headline measures are `dq_valid = true` slices of the fact. The filter
+is applied once, at the dashboard level, rather than being baked into the model.
 
 | Measure | Definition | Source |
 |---|---|---|
@@ -105,16 +121,24 @@ is trustworthy and records why; the marts only apply that decision. This keeps
 the rules in one auditable place instead of repeated across reporting queries.
 
 **Unknown members instead of dropped keys.** Dimensions carry a `-1` Unknown
-member. To be precise about what it does today: **no fact row currently points at
-it.** `fct_sm_sales` excludes every `dq_valid = false` row, and
-`mart_sm_data_quality` reports those rows from staging without joining the
-dimensions, so the placeholder is presently unused. It is there because the
-exclusion policy is a business decision, not a fixed property of the model — if
-the business decides unattributable sales should appear in headline volume under
-an explicit "Unknown" label, the fact table's filter relaxes and the dimensions
-already have somewhere for those keys to land, with referential integrity intact.
-Adding the member later would mean rebuilding the dimensions and the tests that
-guard them.
+member, and fact rows now point at it. Where a transaction has a missing or
+unresolvable `CustomerID`, or a `ProductID` absent from the product master, the
+fact stores `-1` as the conformed key and keeps the original in
+`source_customer_id` / `source_product_id`. The row joins cleanly, appears under
+an explicit "Unknown" label in any dimensional breakdown, and referential
+integrity holds.
+
+This is what makes the `not_null` and `relationships` tests on the fact
+meaningful rather than tautological. Before, they passed because the offending
+rows had been filtered out; now they pass because the keys are genuinely
+resolved, and they will fail loudly if the resolution is ever broken. They are
+the regression guard for this design, not decoration.
+
+**Keys are resolved in the mart, not in staging.** Staging records *what is
+wrong* with a row; the mart decides *what to do about it*. The resolution reuses
+the `issue_*` booleans staging already computed rather than re-deriving
+dimension membership, so there is exactly one definition of "unknown customer"
+in the codebase.
 
 **Two near-duplicate problems handled differently.** The duplicate `ProductID` is
 deduplicated because a repeated dimension key is a structural defect that would
