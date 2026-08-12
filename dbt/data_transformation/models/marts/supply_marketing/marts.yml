@@ -3,29 +3,61 @@ version: 2
 models:
   - name: fct_sm_sales
     description: >
-      Sales fact table, one row per source transaction, restricted to rows that
-      passed staging data quality rules. Grain: transaction_id.
+      Sales fact table, one row per source transaction. Every source row is
+      present, including rows that failed a staging data quality rule; dq_valid
+      marks the rows fit for headline KPIs and consumers filter on it
+      explicitly. Grain: transaction_id.
     columns:
       - name: transaction_id
         tests: [unique, not_null]
       - name: customer_id
+        description: >
+          Conformed customer key. Routed to the '-1' Unknown member when the
+          source value is missing or not present in the customer dimension.
         tests:
           - not_null
           - relationships:
               to: ref('dim_sm_customer')
               field: customer_id
       - name: product_id
+        description: >
+          Conformed product key. Routed to the '-1' Unknown member when the
+          source value is not present in the product dimension.
         tests:
           - not_null
           - relationships:
               to: ref('dim_sm_product')
               field: product_id
+      - name: source_customer_id
+        description: >
+          The customer id exactly as it appeared in the source, before Unknown
+          member resolution. Null where the source omitted it.
+      - name: source_product_id
+        description: >
+          The product id exactly as it appeared in the source, before Unknown
+          member resolution.
       - name: revenue
         description: quantity * unit_price, in the transaction currency.
       - name: margin
-        description: quantity * margin_per_unit from the product dimension.
+        description: >
+          quantity * margin_per_unit from the product dimension. Null for rows
+          resolved to the Unknown product, which carries no margin rate.
       - name: volume
         description: Quantity sold, used for volume-by-product reporting.
+      - name: dq_valid
+        description: >
+          True when the row passed every blocking staging data quality rule.
+          Headline KPIs filter on dq_valid = true; the Metabase dashboard
+          defaults its data quality filter to true.
+        tests:
+          - not_null
+      - name: dq_issues
+        description: >
+          Array of reason codes for every rule the row tripped, including
+          non-blocking ones such as possible_duplicate_transaction. Empty for a
+          clean row.
+      - name: dq_issues_label
+        description: Comma-separated rendering of dq_issues, for BI display.
 
   - name: dim_sm_customer
     description: Customer dimension, including an Unknown member for unresolvable keys.
