@@ -1,0 +1,25 @@
+version: 2
+
+exposures:
+  - name: supply_marketing_reporting
+    label: Supply & Marketing Reporting
+    type: dashboard
+    maturity: high
+
+    description: >
+      Metabase dashboard for the Supply & Marketing department: executive KPIs,
+      revenue by country and over time, product performance, customer overview,
+      and a data quality view showing which source rows are excluded from the
+      reported figures and why.
+
+    url: https://metabase.franklingreen.de/dashboard/3
+    owner:
+      name: Daniell Green
+      email: hdf.green@gmail.com
+
+    depends_on:
+      - ref('fct_sm_sales')
+      - ref('dim_sm_customer')
+      - ref('dim_sm_product')
+      - ref('dim_sm_date')
+      - ref('mart_sm_data_quality')
