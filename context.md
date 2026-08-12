@@ -81,6 +81,11 @@ Matches README exactly:
 - Airflow Variables currently hold database credentials. Moving them to a
   secrets backend is tracked in
   `airflow/dags/pipelines/supply_marketing_reporting/docs/governance.md`.
-- Metabase has no `MB_ENCRYPTION_SECRET_KEY` set, so it stores its database
-  connection credentials unencrypted in its application database. Setting one
-  and restarting Metabase would encrypt them at rest.
+- ~~Metabase has no `MB_ENCRYPTION_SECRET_KEY` set~~ — **resolved.**
+  `MB_ENCRYPTION_SECRET_KEY` is now passed to the Metabase container, so its stored
+  database credentials are encrypted at rest. Verified on the host.
+
+  Note that the `docker-compose.yml` line adding it exists **only as an uncommitted
+  local modification on the server**, not in git. A fresh clone would deploy a Metabase
+  without encryption, and anyone running `git checkout -- docker-compose.yml` on the
+  host would silently remove it. This should be committed.

@@ -220,15 +220,25 @@ curl -i https://airbyte.franklingreen.de/api/v1/health
 
 ## Airflow DAGs (current state)
 
-Pipeline pattern:
-1. Airbyte sync ✅
-2. dbt run ✅
-3. dbt test ⏳
-4. dbt docs publish ✅
+Two pipelines exist, and they use **different transformation patterns**:
+
+| Pipeline | DAG | Pattern |
+|---|---|---|
+| GitHub analytics | `airbyte_github_pandas_pipeline` | Airbyte sync → `dbt run` → `dbt test` → docs |
+| Supply & Marketing | `supply_marketing_raw_ingest_transform` | `load_raw_files` → **`dbt build`** → docs |
+
+`dbt build` is the better pattern and the one to converge on. `dbt run` followed by
+`dbt test` materialises every model before any test runs, so a failing test leaves
+invalid data live in `mart` and only skips the docs publish — consumers reading the
+warehouse never find out. `dbt build` tests each model as it is built and skips anything
+downstream of a failure.
 
 Notes:
-- `dbt test` should fail the DAG on test failures
+- Both patterns fail the DAG on test failure; only `dbt build` prevents bad data
+  reaching a published table in the first place
 - Prefer model/test selection via tags
+- **Open item:** migrate the GitHub analytics pipeline to `dbt_build` as well. The
+  helper already exists in `shared/dbt_tasks.py`
 
 ---
 

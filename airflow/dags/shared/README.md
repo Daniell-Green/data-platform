@@ -35,7 +35,20 @@ If a file defines a DAG (`with DAG(...)`), it does **not** belong here.
 
 - Importable and reusable
 - No side effects at import time
-- No direct reads of Airflow Variables or Connections at module im
+- No direct reads of Airflow Variables or Connections at module import time
+
+### Known deviation
+
+`dbt_tasks.py` currently violates the last two principles: `DEFAULT_DBT_ENV` is a
+module-level dict that calls `Variable.get()` four times as the module is imported.
+Because Airflow re-parses DAG files on a timer, every parse issues those queries against
+the metadata database for every DAG that imports this module — work that is repeated
+constantly and only ever used when a task actually runs.
+
+The fix is to resolve the variables inside `make_dbt_task()`, or to pass them as
+templated strings (`{{ var.value.DBT_DEV_HOST }}`) so Airflow resolves them at execution
+time. Recorded here rather than quietly dropped from the principles: the principle is
+right and the code has not caught up with it.
 
 ## Responsibility
 
