@@ -49,6 +49,19 @@ def dbt_run(*, project_dir_host: str = DEFAULT_DBT_PROJECT_DIR_HOST, select: str
     return make_dbt_task(task_id="dbt_run", command=cmd, project_dir_host=project_dir_host)
 
 
+def dbt_build(*, project_dir_host: str = DEFAULT_DBT_PROJECT_DIR_HOST, select: str | None = None,) -> DockerOperator:
+    """Run and test each model together, in dependency order.
+
+    Preferred over a separate dbt_run >> dbt_test pair. With run-then-test, every
+    model is materialised before any test executes, so a failing test means bad data
+    is already live in the mart and only the docs publish is skipped. `dbt build`
+    tests each model as it is built and skips anything downstream of a failure, so a
+    broken model cannot silently become a dependency of a published table.
+    """
+    cmd = "dbt build" + (f" --select {select}" if select else "")
+    return make_dbt_task(task_id="dbt_build", command=cmd, project_dir_host=project_dir_host)
+
+
 def dbt_test(*, project_dir_host: str = DEFAULT_DBT_PROJECT_DIR_HOST, select: str | None = None,) -> DockerOperator:
     cmd = "dbt test" + (f" --select {select}" if select else "")
     return make_dbt_task(task_id="dbt_test", command=cmd, project_dir_host=project_dir_host)

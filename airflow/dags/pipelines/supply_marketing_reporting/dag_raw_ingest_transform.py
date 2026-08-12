@@ -12,7 +12,7 @@ from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 
-from shared.dbt_tasks import dbt_run, dbt_test, dbt_docs_generate, dbt_docs_publish
+from shared.dbt_tasks import dbt_build, dbt_docs_generate, dbt_docs_publish
 
 SOURCE_DIR = Path(__file__).parent / "source_data"
 RAW_SCHEMA = "raw"
@@ -72,20 +72,26 @@ def load_raw_files() -> None:
         # table: the dbt staging views depend on these tables, so a drop fails
         # once the models have been built. Truncating keeps the table and its
         # dependents in place while still giving full-refresh semantics.
-        if inspect(engine).has_table(table_name, schema=RAW_SCHEMA):
-            with engine.begin() as conn:
+        #
+        # The truncate and the load share one transaction. Committing the
+        # truncate separately would mean a failed load leaves the raw table
+        # empty but committed, and the next dbt run would rebuild the marts to
+        # zero rows while every task still reported success. Rolling back
+        # together keeps the previous contents on any failure.
+        with engine.begin() as conn:
+            if inspect(conn).has_table(table_name, schema=RAW_SCHEMA):
                 conn.exec_driver_sql(f'truncate table {RAW_SCHEMA}."{table_name}"')
-            if_exists = "append"
-        else:
-            if_exists = "replace"
+                if_exists = "append"
+            else:
+                if_exists = "replace"
 
-        df.to_sql(
-            table_name,
-            engine,
-            schema=RAW_SCHEMA,
-            if_exists=if_exists,
-            index=False,
-        )
+            df.to_sql(
+                table_name,
+                conn,
+                schema=RAW_SCHEMA,
+                if_exists=if_exists,
+                index=False,
+            )
 
 
 with DAG(
@@ -103,9 +109,12 @@ with DAG(
         python_callable=load_raw_files,
     )
 
-    run = dbt_run(select="tag:supply_marketing_reporting")
-    test = dbt_test(select="tag:supply_marketing_reporting")
+    # dbt build, not run-then-test: tests execute per model and anything downstream
+    # of a failure is skipped. mart_sm_pipeline_status depends on the fact, so it is
+    # only rebuilt when the marts actually pass validation - that is what makes its
+    # validated_at timestamp meaningful to the dashboard.
+    build = dbt_build(select="tag:supply_marketing_reporting")
     docs_gen = dbt_docs_generate()
     docs_pub = dbt_docs_publish()
 
-    load_raw >> run >> test >> docs_gen >> docs_pub
+    load_raw >> build >> docs_gen >> docs_pub

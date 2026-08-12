@@ -89,7 +89,7 @@ rather than per card.
 |---|---|---|
 | `dim_sm_customer` | one row per customer | Includes an `Unknown Customer` (`-1`) member. Carries `is_possible_duplicate_customer`. |
 | `dim_sm_product` | one row per product | Deduplicated from the source file. Enriched with `margin_per_unit`, so margin is a simple fact-side multiplication. Includes an `Unknown Product` (`-1`) member. |
-| `dim_sm_date` | one row per calendar day | Generated across the observed transaction range, padded out to whole calendar months (Jan 2026 → 31 rows), so trend charts show gaps as gaps rather than skipping absent days. |
+| `dim_sm_date` | one row per calendar day | Generated across the observed transaction range, padded out to whole calendar months (Jan 2026 → 31 rows). The Revenue Trend card is driven from this dimension with a left join to the fact, so days with no sales plot as zero instead of being skipped. 23 of the 31 days currently have no transactions. |
 
 ## Key business measures
 
@@ -140,11 +140,75 @@ the `issue_*` booleans staging already computed rather than re-deriving
 dimension membership, so there is exactly one definition of "unknown customer"
 in the codebase.
 
+**"Country" means the transaction's country, not the customer's.** The source provides
+both: `sales.csv` carries a `country` per transaction (landed as
+`fct_sm_sales.transaction_country`) and `Customers.xlsx` carries one per customer
+(`dim_sm_customer.customer_country`). Reporting uses the transaction's.
+
+Three reasons. It is an attribute of the event being measured, so it belongs on the
+fact as a degenerate dimension and needs no join. It is the only country available for
+a transaction whose customer cannot be resolved — under the customer's country, those
+rows would report as "Unknown" rather than where the sale actually happened. And it
+answers the question "where is our revenue coming from?" in the operational sense
+Supply & Marketing means by it.
+
+**In this data the choice is almost immaterial, and it is worth being precise about
+why.** The two fields agree on every transaction with a resolvable customer. They
+diverge on exactly one row — transaction 1009, which has no customer at all — and only
+in the unfiltered view:
+
+| View | By `transaction_country` | By `customer_country` |
+|---|---|---|
+| Default (`dq_valid = true`) | DE 361,600 | DE 361,600 |
+| Filter cleared | DE 374,000 | DE 358,400 + Unknown 15,600 |
+
+So no published figure depends on the choice. The source data contains no evidence of a
+ship-to / bill-to distinction; the only divergence is an artefact of a missing customer
+key, not of a customer buying in another country.
+
+The assumption is enforced rather than merely observed:
+`tests/assert_sm_transaction_country_matches_customer.sql` fails the build if a
+transaction with a known customer is ever recorded against a different country than that
+customer. If that test starts failing, the source has begun making a distinction this
+model does not, and the reporting definition needs revisiting with the business.
+
 **Two near-duplicate problems handled differently.** The duplicate `ProductID` is
 deduplicated because a repeated dimension key is a structural defect that would
 fan out fact rows. The near-identical customer names are kept and flagged,
 because both keys are valid and deciding they are one company is a business call
 this data cannot support. See `data_assessment.md`.
+
+**The date dimension only spans observed data.** `dim_sm_date` is generated from the
+min and max transaction dates, padded to whole months. Days and interior months with no
+sales are present and plot as zero, because `generate_series` runs continuously across
+the span. But periods *outside* the observed range do not exist — with only January 2026
+in the source, a full-year 2026 trend is not expressible. A production build would drive
+this from a configured calendar range rather than from the data, so the dimension does
+not depend on the facts it is meant to describe. Called out because a date dimension
+derived from observed data is a genuine modelling compromise, not an oversight.
+
+Note that for the same reason, a `relationships` test from `fct_sm_sales.transaction_date`
+to `dim_sm_date.date_day` would be **circular and is deliberately not present**: the
+dimension is defined as the span of those very dates, so such a test could never fail.
+Date integrity is asserted upstream by `not_null` on `stg_sm_sales.transaction_date`.
+
+## Monitoring and failure behaviour
+
+The DAG runs `dbt build`, not `dbt run` followed by `dbt test`. The distinction matters:
+with run-then-test, every model is materialised before any test executes, so a failing
+test means invalid data is already live in `mart` and only the docs publish is skipped —
+invisible to anyone reading the dashboard. `dbt build` tests each model as it is built
+and skips everything downstream of a failure.
+
+`mart_sm_pipeline_status` depends on the fact and both dimensions, so it is skipped
+whenever their tests fail. Its `validated_at` therefore records the last time the marts
+*passed validation*, and the dashboard's "Data validated" card goes visibly stale when
+they do not. That is the consumer-facing failure signal.
+
+**Still missing, and worth stating plainly:** there is no alerting. No
+`on_failure_callback`, no email, no paging — a failure is visible to someone who looks
+at the dashboard or at Airflow, but nothing pushes. A production deployment needs
+`on_failure_callback` wired to a real channel.
 
 ## Known caveat to raise with the business
 

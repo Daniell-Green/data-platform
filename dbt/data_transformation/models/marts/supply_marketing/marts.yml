@@ -86,3 +86,26 @@ models:
     columns:
       - name: transaction_id
         tests: [unique, not_null]
+
+  - name: mart_sm_pipeline_status
+    description: >
+      Single-row freshness indicator powering the dashboard's "Data validated"
+      card. Because the DAG runs dbt build, this model is skipped whenever an
+      upstream test fails, so validated_at means "the marts last passed
+      validation" rather than "the pipeline last ran". A stale timestamp on the
+      dashboard is the signal that a test failed.
+    columns:
+      - name: validated_at
+        description: Build time of this model, i.e. the last successful validation.
+        tests: [not_null]
+      - name: fact_row_count
+        description: >
+          Total rows in fct_sm_sales. Surfaced because unique and not_null tests
+          pass vacuously on an empty table, so a row count is the only signal
+          that a source load silently produced nothing.
+      - name: valid_row_count
+        description: Rows where dq_valid is true, i.e. those behind the headline KPIs.
+      - name: source_loaded_at
+        description: >
+          Newest _loaded_at on the fact. A wide gap from validated_at means the
+          marts are being rebuilt from stale source data.

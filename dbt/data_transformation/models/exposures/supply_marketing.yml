@@ -25,3 +25,4 @@ exposures:
       - ref('dim_sm_product')
       - ref('dim_sm_date')
       - ref('mart_sm_data_quality')
+      - ref('mart_sm_pipeline_status')
