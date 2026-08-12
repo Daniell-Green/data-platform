@@ -64,9 +64,8 @@ Matches README exactly:
 
 ## Scheduling
 - No crontab on `root`. Only standard Ubuntu systemd timers are active (apt-daily, logrotate, fstrim, sysstat, man-db, etc.) — nothing platform-specific.
-- Certificate renewal does not appear to be cron-driven; the repeated one-shot certbot containers suggest it's triggered manually or by an external script/CI rather than an in-host scheduler. Worth confirming if automated renewal is actually wired up, since no timer or cron job was found driving it.
+- Certificate renewal is **not** cron-driven — it's triggered by an **Airflow DAG**, which runs the one-shot certbot containers (matches the repeated `data-platform-certbot-run-*` containers seen). Confirmed 2026-08-12.
 
 ## Open items / things to watch
 - kubectl client/server skew (1.36 vs 1.32) — bump client or pin an older kubectl if it starts causing real problems.
 - Stale exited-but-"Up" certbot one-shot containers accumulating — safe to `docker container prune`.
-- Confirm how/whether cert renewal is actually scheduled (no cron/timer found for it as of this check) — if it's not automated, certs could silently expire.
