@@ -15,7 +15,7 @@ comes from the modelled marts rather than from ad-hoc queries against source dat
 | Revenue Analysis | Revenue by Transaction Country (bar) · Revenue Trend (line) |
 | Product Performance | Volume by Product (bar) · Margin by Product Group (bar) |
 | Customer Overview | Top Customers by Revenue (row) · Revenue by Customer Segment (bar) |
-| Data Quality | Flagged Records by Issue · Flagged Records (row-level detail) · Data Validated (freshness) |
+| Data Quality | Issues by Scope and Type · Flagged Records (transaction detail) · Master Data Issues · Data Validated (freshness) |
 
 ## The data quality filter
 
@@ -41,6 +41,33 @@ filter and reports on all rows, so the wiring is per-card and worth re-checking
 when a card is added.
 
 ## Design choices
+
+**The dashboard reports every issue the assessment claims.** `data_assessment.md`
+identifies seven issues, but the Data Quality section could only ever show the
+transaction-level ones: the near-duplicate customers (C007/C008) and the deduplicated
+P300 product key were modelled as flags on the dimensions and surfaced nowhere. A
+reviewer counting cards against the assessment would find four where they expected six.
+`mart_sm_quality_issues` normalises all grains to one row per issue, so the breakdown
+card reports across transactions, customers and products, and Master Data Issues gives
+the entity-level detail.
+
+**The trend is bounded to the observed range, not the calendar month.** The dimension
+still supplies the axis and days without sales still plot as zero — but the card is
+bounded to the transaction range plus a day either side. Spanning the whole month left
+25 of 31 days empty, which a reader reasonably interprets as "the data stopped" rather
+than "the extract ends mid-month". Only two of those zeros were interior gaps, and those
+still render. Honest gap-filling and an unreadable chart are not the same goal.
+
+**Scalars show their full value.** Metabase abbreviates a scalar that does not fit its
+card width, so Total Revenue rendered as "502k" while the documentation quoted 501,500.
+A rounded headline beside a claim of exact reconciliation invites the wrong question.
+The card is wider and all five scalars carry explicit formatting.
+
+**Top Customers carries its caveat inline.** Aral AG's total comes entirely from the
+flagged 1007/1008 pair, and the Data Quality detail is far down the page. The card
+description states it where the claim is made, rather than relying on the reader
+scrolling — and without splitting the bars into a second series, which would break the
+single-series rule below.
 
 **One concept, one name.** The filter chip, the section text, the card columns and the
 warehouse column are all `dq_valid`. The BI layer deliberately applies no cosmetic

@@ -68,12 +68,22 @@ CARD_SQL = {
     # out to whole calendar months in the first place. The field filter belongs in
     # the ON clause, not WHERE: in WHERE it would discard the null-extended rows and
     # collapse the outer join back to an inner one, silently undoing the gap fill.
+    #
+    # Bounded to the observed transaction range plus one day either side. The full
+    # calendar month left 25 of 31 days empty, which reads as "the data stopped"
+    # rather than "the extract ends mid-month". Only 2 of those zero days were
+    # interior gaps - the informative kind - and those are still rendered, because
+    # the left join against the dimension is unchanged. The bound uses the fact's own
+    # min/max unfiltered, so the axis does not move when the filter is toggled.
     46: (
         "select d.date_day as transaction_date, "
         "coalesce(sum(mart.fct_sm_sales.revenue), 0) as revenue "
         "from mart.dim_sm_date d "
         "left join mart.fct_sm_sales "
         "on mart.fct_sm_sales.transaction_date = d.date_day and {{dq_valid}} "
+        "where d.date_day between "
+        "(select min(transaction_date) - 1 from mart.fct_sm_sales) and "
+        "(select max(transaction_date) + 1 from mart.fct_sm_sales) "
         "group by 1 order by 1"
     ),
     # 47-50: the fact table is referenced by its real name, not an alias, so the
@@ -122,6 +132,79 @@ UNWIRED_CARD_SQL = {
         "select transaction_id, transaction_date, customer_id, product_id, quantity, "
         "gross_revenue, dq_issues_label, dq_valid, revenue_excluded_from_kpis "
         "from mart.mart_sm_data_quality order by transaction_id"
+    ),
+    # Repointed at the unified register so it reports across all three grains, not
+    # just transactions. This is what makes the dashboard show every issue the data
+    # assessment claims rather than only the transaction-level subset.
+    52: (
+        "select issue_scope, issue_code, is_blocking, count(*) as records, "
+        "sum(revenue_affected) as revenue_affected "
+        "from mart.mart_sm_quality_issues "
+        "group by 1, 2, 3 order by 4 desc, 2"
+    ),
+}
+
+# Scalar cards: explicit number formatting. Four of the five carried no formatting at
+# all, and Total Revenue rendered as "502k" because Metabase abbreviates a scalar that
+# does not fit its card width - so the width is widened below as well as the format set.
+# A deck that quotes 501,500 should not sit next to a headline reading 502k.
+SCALAR_FORMATS = {
+    40: ("total_revenue", {"number_style": "decimal", "decimals": 0}),
+    41: ("total_volume", {"number_style": "decimal", "decimals": 0}),
+    42: ("total_margin", {"number_style": "decimal", "decimals": 0}),
+    43: ("margin_pct", {"number_style": "decimal", "decimals": 1, "suffix": "%"}),
+    44: ("revenue_excluded_from_kpis", {"number_style": "decimal", "decimals": 0}),
+}
+
+# Executive summary row geometry, on the 24-column grid. Total Revenue gets 6 columns
+# so 501,500 fits unabbreviated; Margin % only ever shows a short value so it yields
+# the column. Sums to exactly 24.
+SCALAR_LAYOUT = {40: (0, 6), 41: (6, 5), 42: (11, 5), 43: (16, 3), 44: (19, 5)}
+
+# Inline caveats. Top Customers has no visible signal that the leader's entire total
+# comes from an unverified pair, and the flagged-records detail sits further down the
+# page. A card description keeps the single-series, no-legend design principle intact
+# while putting the caveat where the claim is made.
+# Cards this script creates if they do not already exist, matched by name so the script
+# stays idempotent. Managing creation here rather than by hand keeps the entire dashboard
+# reproducible from the repo - a card created once through the UI is a card nobody can
+# rebuild. None are wired to the dq_valid filter: a freshness signal is not a data slice,
+# and the data quality view must always show every issue.
+MANAGED_CARDS = {
+    "Data Validated": {
+        "display": "scalar",
+        "sql": "select validated_at from mart.mart_sm_pipeline_status",
+        "description": (
+            "Last time the marts passed dbt validation. The pipeline runs dbt build, so "
+            "this model is skipped when an upstream test fails and the timestamp stops "
+            "advancing - a stale value here means the figures above failed validation."
+        ),
+        "row": 33, "col": 0, "size_x": 6, "size_y": 3,
+    },
+    "Master Data Issues": {
+        "display": "table",
+        "sql": (
+            "select issue_scope, entity_id, entity_label, issue_code "
+            "from mart.mart_sm_quality_issues "
+            "where issue_scope <> 'transaction' "
+            "order by issue_scope, entity_id"
+        ),
+        "description": (
+            "Issues on the customer and product master rather than on individual "
+            "transactions: the C007/C008 near-duplicate customers and the deduplicated "
+            "P300 product key. Neither blocks a transaction from the KPIs; both are "
+            "business questions raised for review."
+        ),
+        "row": 33, "col": 6, "size_x": 18, "size_y": 3,
+    },
+}
+
+CARD_DESCRIPTIONS = {
+    49: (
+        "Aral AG's total comes entirely from transactions 1007 and 1008, the pair "
+        "flagged as possible duplicates. They are counted (dq_valid = true) because "
+        "transaction_id is assumed source-assigned, but if the business confirms them "
+        "as one booking this ranking changes. See the Data Quality section."
     ),
 }
 
@@ -194,6 +277,71 @@ def template_tags(field_id: int) -> dict:
     }
 
 
+def ensure_managed_cards(dashboard: dict) -> dict:
+    """Create or update the cards in MANAGED_CARDS. Returns {name: card_id}.
+
+    Matched by name rather than id so a re-run does not create duplicates, and so the
+    script can adopt cards that already exist from an earlier manual step.
+    """
+    existing = {
+        (c.get("card") or {}).get("name"): c["card"]["id"]
+        for c in dashboard["dashcards"]
+        if (c.get("card") or {}).get("id")
+    }
+    collection_id = next(
+        (c["card"].get("collection_id") for c in dashboard["dashcards"] if c.get("card")),
+        None,
+    )
+
+    ids = {}
+    for name, spec in MANAGED_CARDS.items():
+        query = {
+            "lib/type": "mbql/query",
+            "database": 2,
+            "stages": [{"lib/type": "mbql.stage/native", "native": spec["sql"]}],
+        }
+        payload = {
+            "name": name,
+            "display": spec["display"],
+            "dataset_query": query,
+            "description": spec["description"],
+        }
+        if name in existing:
+            api(f"/card/{existing[name]}", "PUT", payload)
+            ids[name] = existing[name]
+            print(f"updated managed card {existing[name]}: {name}")
+        else:
+            payload["collection_id"] = collection_id
+            payload["visualization_settings"] = {}
+            card = api("/card", "POST", payload)
+            ids[name] = card["id"]
+            print(f"created managed card {card['id']}: {name}")
+    return ids
+
+
+def place_managed_cards(dashcards: list, managed_ids: dict) -> list:
+    """Add any managed card that is not yet on the dashboard, at its configured spot."""
+    present = {(dc.get("card") or {}).get("id") for dc in dashcards}
+    for name, spec in MANAGED_CARDS.items():
+        cid = managed_ids.get(name)
+        if cid is None or cid in present:
+            continue
+        dashcards.append(
+            {
+                "id": -(len(dashcards) + 1),
+                "card_id": cid,
+                "row": spec["row"],
+                "col": spec["col"],
+                "size_x": spec["size_x"],
+                "size_y": spec["size_y"],
+                "parameter_mappings": [],
+                "visualization_settings": {},
+            }
+        )
+        print(f"placed managed card {cid} ({name}) at row {spec['row']} col {spec['col']}")
+    return dashcards
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     group = ap.add_mutually_exclusive_group(required=True)
@@ -205,7 +353,15 @@ def main() -> None:
     if args.revert:
         backup = json.load(open(args.revert))
         for cid, card in backup["cards"].items():
-            api(f"/card/{cid}", "PUT", {"dataset_query": card["dataset_query"]})
+            api(
+                f"/card/{cid}",
+                "PUT",
+                {
+                    "dataset_query": card["dataset_query"],
+                    "visualization_settings": card.get("visualization_settings") or {},
+                    "description": card.get("description"),
+                },
+            )
             print(f"reverted card {cid}")
         api(
             f"/dashboard/{DASHBOARD_ID}",
@@ -276,6 +432,21 @@ def main() -> None:
         api(f"/card/{cid}", "PUT", {"dataset_query": query})
         print(f"updated unwired card {cid}: {card['name']}")
 
+    for cid, (col, fmt) in SCALAR_FORMATS.items():
+        card = api(f"/card/{cid}")
+        vs = json.loads(json.dumps(card.get("visualization_settings") or {}))
+        vs.setdefault("column_settings", {})[f'["name","{col}"]'] = fmt
+        # Belt and braces against Metabase's automatic abbreviation of long scalars.
+        vs["scalar.compact_primary_number"] = False
+        api(f"/card/{cid}", "PUT", {"visualization_settings": vs})
+        print(f"formatted scalar card {cid}: {card['name']}")
+
+    for cid, desc in CARD_DESCRIPTIONS.items():
+        api(f"/card/{cid}", "PUT", {"description": desc})
+        print(f"set description on card {cid}")
+
+    managed_ids = ensure_managed_cards(dashboard)
+
     parameters = [p for p in dashboard.get("parameters", []) if p.get("slug") != PARAM_SLUG]
     parameters.append(
         {
@@ -288,7 +459,7 @@ def main() -> None:
         }
     )
 
-    dashcards = json.loads(json.dumps(dashboard["dashcards"]))
+    dashcards = place_managed_cards(json.loads(json.dumps(dashboard["dashcards"])), managed_ids)
     for dc in dashcards:
         text = (dc.get("visualization_settings") or {}).get("text")
         if text and SECTION_TEXT_MARKER in text:
@@ -296,6 +467,12 @@ def main() -> None:
             print(f"updated section text on dashcard {dc['id']}")
 
         cid = (dc.get("card") or {}).get("id")
+
+        # Widen Total Revenue so its value is not abbreviated to fit.
+        if cid in SCALAR_LAYOUT:
+            col, width = SCALAR_LAYOUT[cid]
+            dc["col"], dc["size_x"] = col, width
+
         if cid not in CARD_SQL:
             continue
         mappings = [m for m in (dc.get("parameter_mappings") or []) if m.get("parameter_id") != PARAM_ID]
