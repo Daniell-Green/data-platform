@@ -172,6 +172,19 @@ transaction with a known customer is ever recorded against a different country t
 customer. If that test starts failing, the source has begun making a distinction this
 model does not, and the reporting definition needs revisiting with the business.
 
+**Product survivorship rule.** `Products.xlsx` contains `P300` twice, spelled "Jet A1"
+and "Jet A-1". Staging keeps **the alphabetically-first `product_name` per
+`product_id`** ("Jet A-1" wins), implemented as a `row_number()` in
+`stg_sm_products.sql`.
+
+The rule is arbitrary and deliberately so. Nothing in the data says which spelling is
+correct, so any choice is a guess; what matters is that it is *deterministic*, so the
+same input always produces the same dimension and the fact never fans out. Both source
+spellings remain in `raw.raw_products` for audit, and the affected key is flagged as
+`has_duplicate_source_rows` and reported on the dashboard, so the fix is visible rather
+than silent. If the business confirms a canonical name, the rule becomes a lookup rather
+than an alphabetical accident.
+
 **Two near-duplicate problems handled differently.** The duplicate `ProductID` is
 deduplicated because a repeated dimension key is a structural defect that would
 fan out fact rows. The near-identical customer names are kept and flagged,
