@@ -87,6 +87,37 @@ models:
       - name: transaction_id
         tests: [unique, not_null]
 
+  - name: mart_sm_quality_issues
+    description: >
+      Every data quality issue at every grain, normalised to one row per
+      (issue_scope, entity_id, issue_code). Covers transaction-level rules plus
+      the master data flags on the customer and product dimensions, which
+      previously had nowhere to surface. Powers the dashboard's issue breakdown
+      and Master Data Issues cards.
+    columns:
+      - name: issue_scope
+        description: transaction, customer or product.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['transaction', 'customer', 'product']
+      - name: entity_id
+        description: transaction_id, customer_id or product_id depending on scope.
+        tests: [not_null]
+      - name: issue_code
+        description: Reason code. Shared vocabulary with stg_sm_sales.dq_issues.
+        tests: [not_null]
+      - name: is_blocking
+        description: >
+          True when the issue excludes the transaction from headline KPIs.
+          Master data flags are never blocking - they raise a business question
+          rather than invalidate a number.
+        tests: [not_null]
+      - name: revenue_affected
+        description: >
+          Absolute gross revenue of the affected transaction. Null for master
+          data issues, where no specific revenue figure is at risk.
+
   - name: mart_sm_pipeline_status
     description: >
       Single-row freshness indicator powering the dashboard's "Data validated"
