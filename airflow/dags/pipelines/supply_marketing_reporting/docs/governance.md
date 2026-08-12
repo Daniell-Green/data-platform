@@ -22,9 +22,11 @@ it possible to prove later what the source actually said.
 
 Two changes would be needed for repeated loads:
 
-- **Replace-on-load becomes incremental.** `if_exists="replace"` is fine for a
-  static file and wrong for a growing table. Sales would become an incremental
-  dbt model keyed on `transaction_id`, with raw appending rather than replacing.
+- **Full-refresh-on-load becomes incremental.** Ingestion currently truncates the
+  raw table and re-appends the whole file, which is right for a static extract
+  and wrong for a growing table. Sales would become an incremental dbt model
+  keyed on `transaction_id`, with raw appending each batch rather than replacing
+  the table's entire contents.
 - **Every load gets a batch identifier.** `_loaded_at` and `_source_file` exist
   today; a `_batch_id` would let a single bad load be isolated and reverted.
 

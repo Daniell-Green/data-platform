@@ -76,7 +76,7 @@ with each other.
 |---|---|---|
 | `dim_sm_customer` | one row per customer | Includes an `Unknown Customer` (`-1`) member. Carries `is_possible_duplicate_customer`. |
 | `dim_sm_product` | one row per product | Deduplicated from the source file. Enriched with `margin_per_unit`, so margin is a simple fact-side multiplication. Includes an `Unknown Product` (`-1`) member. |
-| `dim_sm_date` | one row per calendar day | Generated across the observed transaction range so trend charts show gaps as gaps rather than skipping absent days. |
+| `dim_sm_date` | one row per calendar day | Generated across the observed transaction range, padded out to whole calendar months (Jan 2026 → 31 rows), so trend charts show gaps as gaps rather than skipping absent days. |
 
 ## Key business measures
 
@@ -105,8 +105,16 @@ is trustworthy and records why; the marts only apply that decision. This keeps
 the rules in one auditable place instead of repeated across reporting queries.
 
 **Unknown members instead of dropped keys.** Dimensions carry a `-1` Unknown
-member so flagged rows can still be described in the data quality view without
-breaking referential integrity or silently disappearing.
+member. To be precise about what it does today: **no fact row currently points at
+it.** `fct_sm_sales` excludes every `dq_valid = false` row, and
+`mart_sm_data_quality` reports those rows from staging without joining the
+dimensions, so the placeholder is presently unused. It is there because the
+exclusion policy is a business decision, not a fixed property of the model — if
+the business decides unattributable sales should appear in headline volume under
+an explicit "Unknown" label, the fact table's filter relaxes and the dimensions
+already have somewhere for those keys to land, with referential integrity intact.
+Adding the member later would mean rebuilding the dimensions and the tests that
+guard them.
 
 **Two near-duplicate problems handled differently.** The duplicate `ProductID` is
 deduplicated because a repeated dimension key is a structural defect that would

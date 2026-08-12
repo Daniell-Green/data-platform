@@ -78,9 +78,11 @@ the unknown-key checks test sales rows against the conformed master data.
 Reconciliation for DE: 52,000 + 41,600 + 36,000 + 90,000 + 90,000 + 52,000 = 361,600.
 
 The excluded German rows are visible in the data quality view: 1009 (15,600
-missing customer) and 1012 (7,200 negative quantity). Germany's reported revenue
-is therefore 361,600 with 22,800 quarantined and accounted for, not silently
-lost.
+missing customer), 1010 (4,000 unknown product) and 1012 (7,200 negative
+quantity). Germany's reported revenue is therefore 361,600 with 26,800
+quarantined and accounted for, not silently lost. All three excluded
+transactions happen to be German, so the 26,800 here is the same figure as the
+platform-wide "Revenue Excluded by Data Quality" KPI on the dashboard.
 
 ## Lineage in tooling
 

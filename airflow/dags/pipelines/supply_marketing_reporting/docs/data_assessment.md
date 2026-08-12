@@ -32,7 +32,7 @@ Source files: `sales.csv`, `Customers.xlsx`, `Products.xlsx`, `Margin.xlsx`
 ## Recommended remediation actions
 
 1. **Don't correct data on the way in.** Land source files into `raw` unmodified — corrections belong in a traceable, reviewable transformation step (`staging`), not silently in ingestion.
-2. **Flag, don't drop, at the row level.** `staging.stg_sales` carries every raw row forward plus `dq_valid` (boolean) and `dq_issues` (list of reason codes) computed explicitly in SQL, so invalid rows are visible, auditable, and countable — not silently vanished.
+2. **Flag, don't drop, at the row level.** `staging.stg_sm_sales` carries every raw row forward plus `dq_valid` (boolean) and `dq_issues` (list of reason codes) computed explicitly in SQL, so invalid rows are visible, auditable, and countable — not silently vanished.
 3. **Fix broken keys before they can fan out joins.** `staging` deduplicates `ProductID` deterministically (documented survivorship rule — see `data_model.md`), since this is a structural fix, not a business judgment call.
 4. **Surface business ambiguities instead of resolving them speculatively.** The `C007`/`C008` near-duplicate is flagged (`possible_duplicate_customer`) and left for the business to confirm — an analytics pipeline shouldn't unilaterally merge master data.
 5. **Exclude `dq_valid = false` rows from headline KPI marts**, but make them fully visible in a dedicated Data Quality mart/dashboard view (row count, $ value at risk, % of total) — matching the brief's explicit "Data quality view" requirement.
