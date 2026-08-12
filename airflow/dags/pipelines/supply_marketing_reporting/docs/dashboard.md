@@ -22,7 +22,7 @@ comes from the modelled marts rather than from ad-hoc queries against source dat
 `fct_sm_sales` holds **every** source transaction, including rows that failed a
 quality rule. The dashboard, not the model, decides which of them count.
 
-A single dashboard filter — **Data quality**, a boolean field filter on
+A single dashboard filter — **`dq_valid`**, a boolean field filter on
 `fct_sm_sales.dq_valid` — is wired to all ten cards that read the fact. It
 **defaults to `true`**, so the dashboard opens showing exactly the figures below.
 Clearing it includes the flagged rows: revenue rises, and the unattributable
@@ -41,6 +41,14 @@ filter and reports on all rows, so the wiring is per-card and worth re-checking
 when a card is added.
 
 ## Design choices
+
+**One concept, one name.** The filter chip, the section text, the card columns and the
+warehouse column are all `dq_valid`. The BI layer deliberately applies no cosmetic
+aliases — earlier versions of these cards renamed `dq_valid` to `in_kpis` and
+`revenue_excluded_from_kpis` to `excluded_revenue`, which reads slightly better and
+makes a figure impossible to trace back to a column. A reader who sees `dq_valid` on the
+dashboard can grep the model for it and find exactly one definition. Column names are
+the contract between the warehouse and the people reading it.
 
 **The quality filter is a visible control, not a hidden predicate.** Previously
 the fact table itself dropped flagged rows, so a reader had no way to tell that
@@ -90,7 +98,7 @@ legend is needed — the card title names the measure.
 
 ## Figures as built
 
-With the Data quality filter at its default (`dq_valid = true`):
+With the `dq_valid` filter at its default (`true`):
 
 | KPI | Value |
 |---|---|
