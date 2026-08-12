@@ -19,13 +19,17 @@ with src as (
     from {{ source('supply_marketing', 'raw_customers') }}
 ),
 
--- Normalised name: lowercase, strip legal form and punctuation, and fold a
--- trailing plural "s" on the last word so "Jet Fuels"/"Jet Fuel" collide.
+-- Normalised name: lowercase, drop punctuation, strip the legal form, remove
+-- remaining whitespace, then fold a trailing plural "s" so "Jet Fuels" and
+-- "Jet Fuel" collide.
 normalised as (
     select
         *,
         regexp_replace(
-            regexp_replace(lower(customer_name), '\s+(gmbh|ag|se|kg|ltd|plc|bv|sa|spa)\b', '', 'g'),
+            regexp_replace(
+                regexp_replace(lower(customer_name), '[^a-z0-9 ]', '', 'g'),
+                '(^| )(gmbh|ag|se|kg|ltd|plc|bv|sa|spa)( |$)', ' ', 'g'
+            ),
             '[^a-z0-9]', '', 'g'
         ) as name_key
     from src
