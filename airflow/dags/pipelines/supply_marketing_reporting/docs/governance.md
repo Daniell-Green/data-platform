@@ -52,10 +52,12 @@ a model does not compile. These fail loudly and stop the run. Retries (currently
 place rather than publishing a partial refresh.
 
 **Data quality failures** — the data arrived but is not trustworthy. These do
-*not* stop the pipeline. Rows are flagged, excluded from KPIs, and reported in
+*not* stop the pipeline. Rows are flagged, kept in the fact table, filtered out
+of the headline figures by the dashboard's `dq_valid` filter, and reported in
 the data quality view. A pipeline that halts on a single bad row leaves the
 business with no dashboard at all, which is usually worse than a dashboard that
-is explicit about what it excluded.
+is explicit about what it set aside — and because the rows are retained rather
+than dropped, a reader can see exactly what that was by clearing the filter.
 
 The line between them is a judgement call and should be reviewed with the
 business. A reasonable escalation: if the flagged share of revenue exceeds an

@@ -72,9 +72,16 @@ that removes the boundary on purpose.
 adding a reason code there — not filtering in a mart or in a Metabase question.
 Marts consume `dq_valid`; they do not redefine it.
 
-**`fct_sm_sales` excludes flagged rows; `mart_sm_data_quality` reports them.**
-Together they account for every source row. If you change one, check the other
-still reconciles.
+**`fct_sm_sales` contains every source row, flagged or not.** `dq_valid` marks the
+rows fit for headline KPIs, and the dashboard filters on it — the model does not.
+Do not add a `where dq_valid` back into the fact: that is what made the mart
+unable to describe its own completeness, and made reclassifying a key-related
+rule a breaking change instead of a one-line edit.
+
+**`mart_sm_data_quality` and `mart_sm_quality_issues` report the problems.** The
+first is transaction-grained detail; the second normalises every issue across
+transactions, customers and products to one row per `(scope, entity, code)`. If
+you change the rules in `stg_sm_sales`, check all three still reconcile.
 
 **Two similar-looking problems are handled differently, deliberately.** The
 duplicate `ProductID` is deduplicated (a duplicate dimension key fans out fact
