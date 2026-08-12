@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: supply_marketing
+    database: dwh
+    schema: raw
+    description: >
+      Raw, unmodified landing tables loaded verbatim from the Supply & Marketing
+      source files (sales.csv, Customers.xlsx, Products.xlsx, Margin.xlsx) by the
+      supply_marketing_raw_ingest_transform Airflow DAG.
+    tables:
+      - name: raw_sales
+      - name: raw_customers
+      - name: raw_products
+      - name: raw_margin
