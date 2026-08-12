@@ -59,9 +59,18 @@ CARD_SQL = {
         "select transaction_country as country, sum(revenue) as revenue "
         "from mart.fct_sm_sales where {{dq_valid}} group by 1 order by 2 desc"
     ),
+    # Driven from the date dimension with a LEFT JOIN so days with no sales render
+    # as zero rather than being skipped, which is the reason dim_sm_date is padded
+    # out to whole calendar months in the first place. The field filter belongs in
+    # the ON clause, not WHERE: in WHERE it would discard the null-extended rows and
+    # collapse the outer join back to an inner one, silently undoing the gap fill.
     46: (
-        "select transaction_date, sum(revenue) as revenue "
-        "from mart.fct_sm_sales where {{dq_valid}} group by 1 order by 1"
+        "select d.date_day as transaction_date, "
+        "coalesce(sum(mart.fct_sm_sales.revenue), 0) as revenue "
+        "from mart.dim_sm_date d "
+        "left join mart.fct_sm_sales "
+        "on mart.fct_sm_sales.transaction_date = d.date_day and {{dq_valid}} "
+        "group by 1 order by 1"
     ),
     # 47-50: the fact table is referenced by its real name, not an alias, so the
     # fully qualified reference the field filter emits resolves.

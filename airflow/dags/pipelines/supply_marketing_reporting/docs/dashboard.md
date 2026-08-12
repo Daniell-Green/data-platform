@@ -12,10 +12,10 @@ comes from the modelled marts rather than from ad-hoc queries against source dat
 | Section | Cards |
 |---|---|
 | Executive Summary | Total Revenue · Total Volume · Total Margin · Margin % · Revenue Excluded by Data Quality |
-| Revenue Analysis | Revenue by Country (bar) · Revenue Trend (line) |
+| Revenue Analysis | Revenue by Transaction Country (bar) · Revenue Trend (line) |
 | Product Performance | Volume by Product (bar) · Margin by Product Group (bar) |
 | Customer Overview | Top Customers by Revenue (row) · Revenue by Customer Segment (bar) |
-| Data Quality | Flagged Records by Issue · Flagged Records (row-level detail) |
+| Data Quality | Flagged Records by Issue · Flagged Records (row-level detail) · Data Validated (freshness) |
 
 ## The data quality filter
 
@@ -54,10 +54,29 @@ quality section.** A reader who never scrolls still sees that 26,800 EUR of
 source data is not represented in the headline figures. Putting it beside the
 revenue number makes the caveat as prominent as the claim.
 
+**The Revenue Trend is driven from the date dimension, not the fact.** It left-joins
+`dim_sm_date` to `fct_sm_sales`, so a day with no sales plots as zero rather than being
+omitted. Reading a trend off the fact alone compresses the x-axis and makes a quiet
+period look like continuous trading. 23 of the 31 days in the current range have no
+transactions, so this materially changes the shape of the chart.
+
+**A "Data validated" card, because a failed test is otherwise invisible.** The pipeline
+runs `dbt build`, which skips `mart_sm_pipeline_status` if any upstream test fails. The
+card reads `validated_at` from it, so if validation fails the timestamp visibly stops
+advancing while the rest of the dashboard keeps serving its last good numbers. Without
+it, a reader has no way to tell whether the figures in front of them passed their tests.
+
 **Form follows the question.** Single headline values are scalars, not
 single-bar charts. Magnitude comparisons across categories are bars. Change over
 time is a line. Row-level quality detail is a table, because the reader needs to
 identify specific transactions rather than compare quantities.
+
+**"Revenue by Transaction Country" is named for the field it groups on.** The source
+carries both a transaction country and a customer country, so an unqualified "Revenue by
+Country" leaves the reader to guess which. The card groups on
+`fct_sm_sales.transaction_country` — see `data_model.md` for why — and the title says so,
+rather than leaving the definition to be asked about. The two agree for every transaction
+with a known customer, and a dbt test enforces that.
 
 **Top Customers is a row chart**, not a column chart: customer names are long,
 and horizontal bars keep them readable without rotated labels.
@@ -81,7 +100,8 @@ With the Data quality filter at its default (`dq_valid = true`):
 | Margin % | 3.6% |
 | Revenue excluded by data quality | 26,800 EUR |
 
-Revenue by country: DE 361,600 · AT 62,400 · PL 46,500 · CZ 31,000.
+Revenue by transaction country: DE 361,600 · AT 62,400 · PL 46,500 · CZ 31,000.
+(Identical under either country definition at this filter setting — see `data_model.md`.)
 
 ## Reading the dashboard honestly
 
