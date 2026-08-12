@@ -42,9 +42,6 @@ def _engine():
 
 def load_raw_files() -> None:
     engine = _engine()
-    with engine.begin() as conn:
-        conn.exec_driver_sql(f"CREATE SCHEMA IF NOT EXISTS {RAW_SCHEMA}")
-
     loaded_at = datetime.utcnow()
 
     for filename, table_name in SOURCE_FILES.items():
