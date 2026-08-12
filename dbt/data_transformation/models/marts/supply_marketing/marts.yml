@@ -1,0 +1,56 @@
+version: 2
+
+models:
+  - name: fct_sm_sales
+    description: >
+      Sales fact table, one row per source transaction, restricted to rows that
+      passed staging data quality rules. Grain: transaction_id.
+    columns:
+      - name: transaction_id
+        tests: [unique, not_null]
+      - name: customer_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_sm_customer')
+              field: customer_id
+      - name: product_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_sm_product')
+              field: product_id
+      - name: revenue
+        description: quantity * unit_price, in the transaction currency.
+      - name: margin
+        description: quantity * margin_per_unit from the product dimension.
+      - name: volume
+        description: Quantity sold, used for volume-by-product reporting.
+
+  - name: dim_sm_customer
+    description: Customer dimension, including an Unknown member for unresolvable keys.
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+
+  - name: dim_sm_product
+    description: >
+      Product dimension enriched with margin per unit, including an Unknown
+      member for unresolvable keys.
+    columns:
+      - name: product_id
+        tests: [unique, not_null]
+
+  - name: dim_sm_date
+    description: Date dimension spanning the observed transaction range.
+    columns:
+      - name: date_day
+        tests: [unique, not_null]
+
+  - name: mart_sm_data_quality
+    description: >
+      One row per flagged source transaction with its reason codes and the
+      revenue value affected. Powers the dashboard's Data Quality view.
+    columns:
+      - name: transaction_id
+        tests: [unique, not_null]
