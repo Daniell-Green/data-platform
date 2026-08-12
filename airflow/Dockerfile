@@ -21,3 +21,9 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 USER airflow
+
+# Needed by pipelines/supply_marketing_reporting to read .xlsx source files.
+# pandas, SQLAlchemy and psycopg2 already ship with the Airflow image and are
+# version-pinned by it (Airflow 2.9 requires SQLAlchemy <2.0), so only the
+# genuinely missing dependency is installed here.
+RUN pip install --no-cache-dir openpyxl==3.1.5

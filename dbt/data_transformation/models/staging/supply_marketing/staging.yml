@@ -1,0 +1,50 @@
+version: 2
+
+models:
+  - name: stg_sm_sales
+    description: >
+      All raw sales transactions, typed and conformed, with per-row data quality
+      flags. No rows are dropped or corrected at this layer.
+    columns:
+      - name: transaction_id
+        description: Source-system transaction identifier. Assumed authoritative.
+        tests: [unique, not_null]
+      - name: transaction_date
+        description: Transaction date, parsed from the source DD.MM.YYYY format.
+        tests: [not_null]
+      - name: dq_valid
+        description: >
+          False when the row failed at least one blocking data quality rule
+          (missing/unknown customer, unknown product, negative quantity).
+          KPI marts select only dq_valid rows.
+        tests: [not_null]
+      - name: dq_issues
+        description: Array of reason codes explaining why a row was flagged.
+
+  - name: stg_sm_customers
+    description: Customer master, with near-duplicate names flagged for business review.
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+      - name: is_possible_duplicate_customer
+        description: >
+          True when another customer_id normalises to the same name. Surfaced for
+          MDM review; deliberately not auto-merged.
+
+  - name: stg_sm_products
+    description: >
+      Product master, deduplicated to one row per product_id. Duplicate source
+      keys would otherwise fan out the sales fact table.
+    columns:
+      - name: product_id
+        tests: [unique, not_null]
+      - name: has_duplicate_source_rows
+        description: True when the source file contained more than one row for this product_id.
+
+  - name: stg_sm_margin
+    description: Margin per unit by product.
+    columns:
+      - name: product_id
+        tests: [unique, not_null]
+      - name: margin_per_unit
+        tests: [not_null]
