@@ -1,0 +1,15 @@
+# Certificate and key material — generated on the host, never committed
+*.key
+*.csr
+*.pem
+
+# dbt build artefacts
+dbt/data_transformation/target/
+dbt/data_transformation/dbt_packages/
+dbt/data_transformation/logs/
+
+# Airflow runtime
+airflow/logs/
+
+# Local environment
+.env
