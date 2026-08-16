@@ -13,3 +13,18 @@ airflow/logs/
 
 # Local environment
 .env
+
+# Certbot runtime state. Holds TLS private keys and the Let's Encrypt account
+# key (accounts/**/private_key.json) — the account key is JSON, so the *.pem
+# rule above does not cover it. This repository is public.
+certbot/conf/
+certbot/logs/
+certbot/www/
+
+# Database bootstrap scripts contain literal role passwords. They belong on the
+# host, not in a public repository. Move them to environment variables before
+# tracking anything here.
+postgres/
+
+# dbt local state
+dbt/data_transformation/.user.yml
